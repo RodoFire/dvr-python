@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from distributed.http.worker.prometheus import routes
+#from distributed.http.worker.prometheus import routes
 
 import GuiTextArea, RouterPacket, F
 from copy import deepcopy
@@ -34,15 +34,67 @@ class RouterNode():
         for i in range(self.sim.NUM_NODES):
             self.distanceTable[self.myID][i] = self.costs[i]
 
-            if self.costs[i] == 999:
-                continue
+            # Set direct routes to neighbors (when the cost < INFINITY)
+            if self.costs[i] < self.sim.INFINITY:
+                self.routes[i] = i
 
-            self.routes[i] = i
+        # Send initial distance vector to all neighbors
+        for i in range(self.sim.NUM_NODES):
+            if i != self.myID and self.costs[i] < self.sim.INFINITY:
+                # Send update to this neighbor
+                pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
+                self.sendUpdate(pkt)
 
     # --------------------------------------------------
     def recvUpdate(self, pkt: RouterPacket.RouterPacket):
-
-        pass
+        # Update the distance table with received information + store the distance vector from the neighbor who sent this packet
+        neighbor = pkt.sourceid
+        
+        # Update the row in distance table for this neighbor
+        for i in range(self.sim.NUM_NODES):
+            self.distanceTable[neighbor][i] = pkt.mincost[i]
+        
+        # Apply Bellman-Ford equation and for each destination, calculate if there's a better path
+        updated = False
+        for dest in range(self.sim.NUM_NODES):
+            if dest == self.myID:
+                continue
+            
+            # Find minimum cost to destination through all neighbors
+            minCost = self.sim.INFINITY
+            nextHop = None
+            
+            for via in range(self.sim.NUM_NODES):
+                if via == self.myID:
+                    continue
+                # Cost to destination via this neighbor = cost to neighbor + neighbor's cost to destination
+                cost = self.costs[via] + self.distanceTable[via][dest]
+                if cost < minCost:
+                    minCost = cost
+                    nextHop = via
+            
+            # Update if we found a better route
+            if minCost < self.costs[dest]:
+                if self.costs[dest] != minCost or self.routes[dest] != nextHop:
+                    self.costs[dest] = minCost
+                    self.routes[dest] = nextHop
+                    updated = True
+        
+        # If our distance vector changed, send updates to all neighbors
+        if updated:
+            for i in range(self.sim.NUM_NODES):
+                if i != self.myID and self.costs[i] < self.sim.INFINITY:
+                    # Prepare packet to send
+                    if self.sim.POISONREVERSE:
+                        # Apply poison reverse : if we route through neighbor i to reach destination, we must tell neighbor i that our distance to destination is infinity
+                        mincost = deepcopy(self.costs)
+                        for dest in range(self.sim.NUM_NODES):
+                            if self.routes[dest] == i:
+                                mincost[dest] = self.sim.INFINITY
+                        pkt = RouterPacket.RouterPacket(self.myID, i, mincost)
+                    else:
+                        pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
+                    self.sendUpdate(pkt)
 
     # --------------------------------------------------
     def sendUpdate(self, pkt: RouterPacket.RouterPacket):
