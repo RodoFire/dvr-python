@@ -36,6 +36,8 @@ class RouterNode():
                            "  at time " + str(self.sim.getClocktime()))
 
         self.myGUI.println("")
+        self.printDistanceVector()
+        self.myGUI.println("")
         self.printDistanceVectorNRoutes()
 
     def printTopTable(self):
@@ -53,6 +55,29 @@ class RouterNode():
 
         self.myGUI.println(table)
         self.myGUI.println(spacer)
+
+    def printDistanceVector(self):
+        self.myGUI.println("distancetable")
+        self.printTopTable()
+        for i in range(len(self.costs)):
+            cost = self.costs[i]
+            if cost == 999 or cost == 0:
+                continue
+            self.myGUI.println("  nbr  " + str(i) + "  |" + self.printNodeCost(i))
+
+
+    def printNodeCost(self, actualNode):
+        line = ""
+        for i in range(len(self.costs)):
+            value = self.sim.connectcosts[actualNode][i]
+            if value > 99:
+                line += "   " + str(value)
+            elif value > 9:
+                line += "    " + str(value)
+            else:
+                line += "     " + str(value)
+        return line
+
 
     def printDistanceVectorNRoutes(self):
         self.myGUI.println("Our distance vector and routes:")
@@ -83,7 +108,7 @@ class RouterNode():
                 line += "     " + str(i)
 
         return line
-
     # --------------------------------------------------
+
     def updateLinkCost(self, dest, newcost):
         pass
