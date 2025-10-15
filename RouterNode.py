@@ -4,12 +4,18 @@ from distributed.http.worker.prometheus import routes
 import GuiTextArea, RouterPacket, F
 from copy import deepcopy
 
+import RouterSimulator
+
 
 class RouterNode():
-    myID = None
-    myGUI = None
-    sim = None
-    costs = None
+    # we define the variable types for better readability
+    myID: int = None
+    myGUI: GuiTextArea.GuiTextArea = None
+    sim: RouterSimulator.RouterSimulator = None
+    costs: list[int] = None
+
+    routes: list[int] = None
+    distanceTable: list[list[int]] = None
 
     # Access simulator variables with:
     # self.sim.POISONREVERSE, self.sim.NUM_NODES, etc.
@@ -22,12 +28,24 @@ class RouterNode():
 
         self.costs = deepcopy(costs)
 
+        self.routes = [None] * self.sim.NUM_NODES
+        self.distanceTable = [[self.sim.INFINITY for _ in range(self.sim.NUM_NODES)] for _ in range(self.sim.NUM_NODES)]
+
+        for i in range(self.sim.NUM_NODES):
+            self.distanceTable[self.myID][i] = self.costs[i]
+
+            if self.costs[i] == 999:
+                continue
+
+            self.routes[i] = i
+
     # --------------------------------------------------
-    def recvUpdate(self, pkt):
+    def recvUpdate(self, pkt: RouterPacket.RouterPacket):
+
         pass
 
     # --------------------------------------------------
-    def sendUpdate(self, pkt):
+    def sendUpdate(self, pkt: RouterPacket.RouterPacket):
         self.sim.toLayer2(pkt)
 
     # --------------------------------------------------
@@ -39,6 +57,8 @@ class RouterNode():
         self.printDistanceVector()
         self.myGUI.println("")
         self.printDistanceVectorNRoutes()
+        self.myGUI.println("")
+        self.myGUI.println("")
 
     def printTopTable(self):
         table = "     dts  |     0     1"
@@ -59,17 +79,16 @@ class RouterNode():
     def printDistanceVector(self):
         self.myGUI.println("distancetable")
         self.printTopTable()
-        for i in range(len(self.costs)):
-            cost = self.costs[i]
-            if cost == 999 or cost == 0:
+        for i in range(len(self.distanceTable)):
+            hop = self.routes[i]
+            if hop is None:
                 continue
             self.myGUI.println("  nbr  " + str(i) + "  |" + self.printNodeCost(i))
 
-
-    def printNodeCost(self, actualNode):
+    def printNodeCost(self, actualNode: int):
         line = ""
-        for i in range(len(self.costs)):
-            value = self.sim.connectcosts[actualNode][i]
+        for i in range(len(self.distanceTable)):
+            value = self.distanceTable[actualNode][i]
             if value > 99:
                 line += "   " + str(value)
             elif value > 9:
@@ -77,7 +96,6 @@ class RouterNode():
             else:
                 line += "     " + str(value)
         return line
-
 
     def printDistanceVectorNRoutes(self):
         self.myGUI.println("Our distance vector and routes:")
@@ -100,14 +118,15 @@ class RouterNode():
 
     def getRoute(self):
         line = ""
-        for i in range(len(self.costs)):
-            value = self.costs[i]
-            if value == 999:
+        for i in range(len(self.routes)):
+            value = self.routes[i]
+            if value is None:
                 line += "     -"
             else:
-                line += "     " + str(i)
+                line += "     " + str(value)
 
         return line
+
     # --------------------------------------------------
 
     def updateLinkCost(self, dest, newcost):
