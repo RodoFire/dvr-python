@@ -28,6 +28,7 @@ class RouterNode():
 
         self.costs = deepcopy(costs)
 
+        # initialize the arrays
         self.routes = [None] * self.sim.NUM_NODES
         self.distanceTable = [[self.sim.INFINITY for _ in range(self.sim.NUM_NODES)] for _ in range(self.sim.NUM_NODES)]
 
@@ -83,18 +84,21 @@ class RouterNode():
         # If our distance vector changed, send updates to all neighbors
         if updated:
             for i in range(self.sim.NUM_NODES):
-                if i != self.myID and self.costs[i] < self.sim.INFINITY:
-                    # Prepare packet to send
-                    if self.sim.POISONREVERSE:
-                        # Apply poison reverse : if we route through neighbor i to reach destination, we must tell neighbor i that our distance to destination is infinity
-                        mincost = deepcopy(self.costs)
-                        for dest in range(self.sim.NUM_NODES):
-                            if self.routes[dest] == i:
-                                mincost[dest] = self.sim.INFINITY
-                        pkt = RouterPacket.RouterPacket(self.myID, i, mincost)
-                    else:
-                        pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
-                    self.sendUpdate(pkt)
+                # in the case the node is not our neighbor or is ourselves, we don't send a packet
+                if i == self.myID or self.costs[i] == self.sim.INFINITY:
+                    continue
+
+                # Prepare packet to send
+                if self.sim.POISONREVERSE:
+                    # Apply poison reverse : if we route through neighbor i to reach destination, we must tell neighbor i that our distance to destination is infinity
+                    mincost = deepcopy(self.costs)
+                    for dest in range(self.sim.NUM_NODES):
+                        if self.routes[dest] == i:
+                            mincost[dest] = self.sim.INFINITY
+                    pkt = RouterPacket.RouterPacket(self.myID, i, mincost)
+                else:
+                    pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
+                self.sendUpdate(pkt)
 
     # --------------------------------------------------
     def sendUpdate(self, pkt: RouterPacket.RouterPacket):
@@ -181,5 +185,6 @@ class RouterNode():
 
     # --------------------------------------------------
 
-    def updateLinkCost(self, dest, newcost):
+    def updateLinkCost(self, dest: int, newcost: int):
+
         pass
