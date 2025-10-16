@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#from distributed.http.worker.prometheus import routes
+# from distributed.http.worker.prometheus import routes
 
 import GuiTextArea, RouterPacket, F
 from copy import deepcopy
@@ -14,6 +14,7 @@ class RouterNode():
     sim: RouterSimulator.RouterSimulator = None
     costs: list[int] = None
 
+    neighbours: set[int] = None
     routes: list[int] = None
     distanceTable: list[list[int]] = None
 
@@ -27,6 +28,7 @@ class RouterNode():
         self.myGUI = GuiTextArea.GuiTextArea("  Output window for Router #" + str(ID) + "  ")
 
         self.costs = deepcopy(costs)
+        self.neighbours = set()
 
         # initialize the arrays
         self.routes = [None] * self.sim.NUM_NODES
@@ -39,6 +41,9 @@ class RouterNode():
             if self.costs[i] < self.sim.INFINITY:
                 self.routes[i] = i
 
+                if self.myID != i:
+                    self.neighbours.add(i)
+
         # Send initial distance vector to all neighbors
         for i in range(self.sim.NUM_NODES):
             if i != self.myID and self.costs[i] < self.sim.INFINITY:
@@ -50,21 +55,21 @@ class RouterNode():
     def recvUpdate(self, pkt: RouterPacket.RouterPacket):
         # Update the distance table with received information + store the distance vector from the neighbor who sent this packet
         neighbor = pkt.sourceid
-        
+
         # Update the row in distance table for this neighbor
         for i in range(self.sim.NUM_NODES):
             self.distanceTable[neighbor][i] = pkt.mincost[i]
-        
+
         # Apply Bellman-Ford equation and for each destination, calculate if there's a better path
         updated = False
         for dest in range(self.sim.NUM_NODES):
             if dest == self.myID:
                 continue
-            
+
             # Find minimum cost to destination through all neighbors
             minCost = self.sim.INFINITY
             nextHop = None
-            
+
             for via in range(self.sim.NUM_NODES):
                 if via == self.myID:
                     continue
@@ -73,14 +78,14 @@ class RouterNode():
                 if cost < minCost:
                     minCost = cost
                     nextHop = via
-            
+
             # Update if we found a better route
             if minCost < self.costs[dest]:
                 if self.costs[dest] != minCost or self.routes[dest] != nextHop:
                     self.costs[dest] = minCost
                     self.routes[dest] = nextHop
                     updated = True
-        
+
         # If our distance vector changed, send updates to all neighbors
         if updated:
             for i in range(self.sim.NUM_NODES):
@@ -136,8 +141,8 @@ class RouterNode():
         self.myGUI.println("distancetable")
         self.printTopTable()
         for i in range(len(self.distanceTable)):
-            hop = self.routes[i]
-            if hop is None:
+            neighbour = self.neighbours.__contains__(i)
+            if not neighbour:
                 continue
             self.myGUI.println("  nbr  " + str(i) + "  |" + self.printNodeCost(i))
 
@@ -186,5 +191,18 @@ class RouterNode():
     # --------------------------------------------------
 
     def updateLinkCost(self, dest: int, newcost: int):
+
+        actualCost = self.costs[dest]
+        if actualCost == newcost:
+            return
+
+        if dest == self.myID:
+            return
+
+        if dest not in self.neighbours:
+            self.neighbours.add(dest)
+        if dest in self.routes and newcost == self.sim.INFINITY:
+            self.neighbours.remove(dest)
+
 
         pass
