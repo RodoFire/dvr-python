@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # from distributed.http.worker.prometheus import routes
-
-import GuiTextArea, RouterPacket, F
 from copy import deepcopy
 
+from PyQt5.QtCore.QByteArray import length
+
+import GuiTextArea
+import RouterPacket
 import RouterSimulator
 
 
@@ -52,7 +54,10 @@ class RouterNode():
     def recvUpdate(self, pkt: RouterPacket.RouterPacket):
         neighbor = pkt.sourceid
         self.distanceTable[neighbor] = pkt.mincost
+        self.bellmanFord()
 
+
+    def bellmanFord(self):
         updated = False
         for dest in range(self.sim.NUM_NODES):
             if dest == self.myID:
@@ -74,13 +79,13 @@ class RouterNode():
 
         if updated:
             for neighbor in self.neighbours:
-                mincost_to_send = deepcopy(self.costs)
+                minCost2Send = deepcopy(self.costs)
                 if self.sim.POISONREVERSE:
                     for d in range(self.sim.NUM_NODES):
                         if self.routes[d] == neighbor:
-                            mincost_to_send[d] = self.sim.INFINITY
+                            minCost2Send[d] = self.sim.INFINITY
 
-                pkt = RouterPacket.RouterPacket(self.myID, neighbor, mincost_to_send)
+                pkt = RouterPacket.RouterPacket(self.myID, neighbor, minCost2Send)
                 self.sendUpdate(pkt)
 
     # --------------------------------------------------
@@ -126,7 +131,7 @@ class RouterNode():
 
             self.myGUI.println("  nbr  " + str(i) + "  |" + self.printNodeCost(i))
 
-    def printNodeCost(self, actualNode: int):
+    def printNodeCost(self, actualNode: int) -> str:
         line = ""
         for i in range(len(self.distanceTable)):
             value = self.distanceTable[actualNode][i]
@@ -144,7 +149,7 @@ class RouterNode():
         self.myGUI.println("  cost    |" + self.getCost())
         self.myGUI.println("  route   |" + self.getRoute())
 
-    def getCost(self):
+    def getCost(self) -> str:
         line = ""
         for i in range(len(self.costs)):
             value = self.costs[i]
@@ -157,7 +162,7 @@ class RouterNode():
 
         return line
 
-    def getRoute(self):
+    def getRoute(self) -> str:
         line = ""
         for i in range(len(self.routes)):
             value = self.routes[i]
@@ -176,32 +181,10 @@ class RouterNode():
         print("updating")
         self.sim.connectcosts[self.myID][dest] = newcost
 
-        updated = False
-        for d in range(self.sim.NUM_NODES):
-            if d == self.myID:
+        for i in range(length(self.distanceTable)):
+            if i == self.myID:
                 continue
 
-            minCost = self.sim.connectcosts[self.myID][d]
-            nextHop = d
+        self.bellmanFord()
 
-            for nbr in self.neighbours:
-                cost = self.sim.connectcosts[self.myID][nbr] + self.distanceTable[nbr][d]
-                if cost < minCost:
-                    minCost = cost
-                    nextHop = nbr
 
-            if self.costs[d] != minCost or self.routes[d] != nextHop:
-                self.costs[d] = minCost
-                self.routes[d] = nextHop
-                updated = True
-
-        if updated:
-            for neighbor in self.neighbours:
-                mincost_to_send = deepcopy(self.costs)
-                if self.sim.POISONREVERSE:
-                    for destination in range(self.sim.NUM_NODES):
-                        if self.routes[destination] == neighbor:
-                            mincost_to_send[destination] = self.sim.INFINITY
-
-                pkt = RouterPacket.RouterPacket(self.myID, neighbor, mincost_to_send)
-                self.sendUpdate(pkt)
