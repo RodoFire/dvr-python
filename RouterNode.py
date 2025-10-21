@@ -48,7 +48,16 @@ class RouterNode():
         for i in range(self.sim.NUM_NODES):
             if i != self.myID and self.costs[i] < self.sim.INFINITY:
                 # Send update to this neighbor
-                pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
+                if self.sim.POISONREVERSE:
+                    # Apply poison reverse even in initialization
+                    mincost = deepcopy(self.costs)
+                    for dest in range(self.sim.NUM_NODES):
+                        # Only poison if we route to dest via neighbor i (and it's not a direct link to dest)
+                        if self.routes[dest] == i and dest != i:
+                            mincost[dest] = self.sim.INFINITY
+                    pkt = RouterPacket.RouterPacket(self.myID, i, mincost)
+                else:
+                    pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
                 self.sendUpdate(pkt)
 
     # --------------------------------------------------
@@ -91,8 +100,8 @@ class RouterNode():
         # If our distance vector changed, send updates to all neighbors
         if updated:
             for i in range(self.sim.NUM_NODES):
-                # in the case the node is not our neighbor or is ourselves, we don't send a packet
-                if i == self.myID or self.costs[i] == self.sim.INFINITY:
+                # Only send to direct neighbors (check direct link cost, not estimated cost)
+                if i == self.myID or self.distanceTable[self.myID][i] >= self.sim.INFINITY:
                     continue
 
                 # Prepare packet to send
@@ -100,7 +109,8 @@ class RouterNode():
                     # Apply poison reverse : if we route through neighbor i to reach destination, we must tell neighbor i that our distance to destination is infinity
                     mincost = deepcopy(self.costs)
                     for dest in range(self.sim.NUM_NODES):
-                        if self.routes[dest] == i:
+                        # Only poison if we route to dest via neighbor i (and it's not a direct link to dest)
+                        if self.routes[dest] == i and dest != i:
                             mincost[dest] = self.sim.INFINITY
                     pkt = RouterPacket.RouterPacket(self.myID, i, mincost)
                 else:
@@ -243,7 +253,8 @@ class RouterNode():
                 # Apply poison reverse
                 mincost = deepcopy(self.costs)
                 for destNode in range(self.sim.NUM_NODES):
-                    if self.routes[destNode] == i:
+                    # Only poison if we route to destNode via neighbor i (and it's not a direct link)
+                    if self.routes[destNode] == i and destNode != i:
                         mincost[destNode] = self.sim.INFINITY
                 pkt = RouterPacket.RouterPacket(self.myID, i, mincost)
             else:
