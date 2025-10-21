@@ -1,11 +1,9 @@
 #!/usr/bin/env python
 # from distributed.http.worker.prometheus import routes
+
+import GuiTextArea, RouterPacket, F
 from copy import deepcopy
 
-from PyQt5.QtCore.QByteArray import length
-
-import GuiTextArea
-import RouterPacket
 import RouterSimulator
 
 
@@ -16,7 +14,6 @@ class RouterNode():
     sim: RouterSimulator.RouterSimulator = None
     costs: list[int] = None
 
-    # set to keep track of direct neighbors
     neighbours: set[int] = None
     routes: list[int] = None
     distanceTable: list[list[int]] = None
@@ -33,59 +30,81 @@ class RouterNode():
         self.costs = deepcopy(costs)
         self.neighbours = set()
 
+        # initialize the arrays
         self.routes = [None] * self.sim.NUM_NODES
         self.distanceTable = [[self.sim.INFINITY for _ in range(self.sim.NUM_NODES)] for _ in range(self.sim.NUM_NODES)]
 
         for i in range(self.sim.NUM_NODES):
             self.distanceTable[self.myID][i] = self.costs[i]
 
+            # Set direct routes to neighbors (when the cost < INFINITY)
             if self.costs[i] < self.sim.INFINITY:
                 self.routes[i] = i
 
                 if self.myID != i:
                     self.neighbours.add(i)
 
+        # Send initial distance vector to all neighbors
         for i in range(self.sim.NUM_NODES):
             if i != self.myID and self.costs[i] < self.sim.INFINITY:
+                # Send update to this neighbor
                 pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
                 self.sendUpdate(pkt)
 
     # --------------------------------------------------
     def recvUpdate(self, pkt: RouterPacket.RouterPacket):
+        # Update the distance table with received information + store the distance vector from the neighbor who sent this packet
         neighbor = pkt.sourceid
-        self.distanceTable[neighbor] = pkt.mincost
-        self.bellmanFord()
 
+        # Update the row in distance table for this neighbor
+        for i in range(self.sim.NUM_NODES):
+            self.distanceTable[neighbor][i] = pkt.mincost[i]
 
-    def bellmanFord(self):
+        # Apply Bellman-Ford equation and for each destination, calculate if there's a better path
         updated = False
         for dest in range(self.sim.NUM_NODES):
             if dest == self.myID:
                 continue
 
-            minCost = self.sim.connectcosts[self.myID][dest]
-            nextHop = dest
+            # Find minimum cost to destination through all neighbors
+            minCost = self.sim.INFINITY
+            nextHop = None
 
-            for nbr in self.neighbours:
-                cost = self.sim.connectcosts[self.myID][nbr] + self.distanceTable[nbr][dest]
+            for via in range(self.sim.NUM_NODES):
+                if via == self.myID:
+                    continue
+                # Cost to destination via this neighbor = DIRECT cost to neighbor + neighbor's cost to destination
+                # Use distanceTable[myID][via] for direct link cost, NOT costs[via]!
+                directCost = self.distanceTable[self.myID][via]
+                cost = directCost + self.distanceTable[via][dest]
                 if cost < minCost:
                     minCost = cost
-                    nextHop = nbr
+                    nextHop = via
 
+            # Update if the cost or route changed (better OR worse)
+            # This is crucial: we must update even if the route got worse!
             if self.costs[dest] != minCost or self.routes[dest] != nextHop:
                 self.costs[dest] = minCost
                 self.routes[dest] = nextHop
                 updated = True
 
+        # If our distance vector changed, send updates to all neighbors
         if updated:
-            for neighbor in self.neighbours:
-                minCost2Send = deepcopy(self.costs)
-                if self.sim.POISONREVERSE:
-                    for d in range(self.sim.NUM_NODES):
-                        if self.routes[d] == neighbor:
-                            minCost2Send[d] = self.sim.INFINITY
+            for i in range(self.sim.NUM_NODES):
+                # in the case the node is not our neighbor or is ourselves, we don't send a packet
+                if i == self.myID or self.costs[i] == self.sim.INFINITY:
+                    continue
 
-                pkt = RouterPacket.RouterPacket(self.myID, neighbor, minCost2Send)
+                # Prepare packet to send
+                if self.sim.POISONREVERSE:
+                    # Apply poison reverse : if we route through neighbor i to reach destination, we must tell neighbor i that our distance to destination is infinity
+                    mincost = deepcopy(self.costs)
+                    for dest in range(self.sim.NUM_NODES):
+                        if self.routes[dest] == i:
+                            mincost[dest] = self.sim.INFINITY
+                    pkt = RouterPacket.RouterPacket(self.myID, i, mincost)
+                else:
+                    pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
                 self.sendUpdate(pkt)
 
     # --------------------------------------------------
@@ -124,14 +143,12 @@ class RouterNode():
         self.myGUI.println("distancetable")
         self.printTopTable()
         for i in range(len(self.distanceTable)):
-            # we do not print its node cost since that its not our neighbor.
-            neighbour = i in self.neighbours
+            neighbour = self.neighbours.__contains__(i)
             if not neighbour:
                 continue
-
             self.myGUI.println("  nbr  " + str(i) + "  |" + self.printNodeCost(i))
 
-    def printNodeCost(self, actualNode: int) -> str:
+    def printNodeCost(self, actualNode: int):
         line = ""
         for i in range(len(self.distanceTable)):
             value = self.distanceTable[actualNode][i]
@@ -149,7 +166,7 @@ class RouterNode():
         self.myGUI.println("  cost    |" + self.getCost())
         self.myGUI.println("  route   |" + self.getRoute())
 
-    def getCost(self) -> str:
+    def getCost(self):
         line = ""
         for i in range(len(self.costs)):
             value = self.costs[i]
@@ -162,7 +179,7 @@ class RouterNode():
 
         return line
 
-    def getRoute(self) -> str:
+    def getRoute(self):
         line = ""
         for i in range(len(self.routes)):
             value = self.routes[i]
@@ -176,15 +193,59 @@ class RouterNode():
     # --------------------------------------------------
 
     def updateLinkCost(self, dest: int, newcost: int):
+        # Get the old direct link cost
+        actualCost = self.distanceTable[self.myID][dest]
+        if actualCost == newcost:
+            return
 
-        self.myGUI.println("Router " + str(self.myID) + " is updating link cost to neighbour " + str(dest) + " to a cost of " + str(newcost))
-        print("updating")
-        self.sim.connectcosts[self.myID][dest] = newcost
+        if dest == self.myID:
+            return
 
-        for i in range(length(self.distanceTable)):
+        # Update neighbor set based on whether link is active
+        if newcost < self.sim.INFINITY:
+            self.neighbours.add(dest)
+        elif dest in self.neighbours:
+            self.neighbours.remove(dest)
+
+        # Update the direct link cost in the distance table
+        self.distanceTable[self.myID][dest] = newcost
+        
+        # Recalculate all routes using Bellman-Ford equation
+        for destNode in range(self.sim.NUM_NODES):
+            if destNode == self.myID:
+                continue
+            
+            # Find minimum cost to destination through all neighbors
+            minCost = self.sim.INFINITY
+            nextHop = None
+            
+            for via in range(self.sim.NUM_NODES):
+                if via == self.myID:
+                    continue
+                # Cost to destination via this neighbor = DIRECT cost to neighbor + neighbor's cost to destination
+                directCost = self.distanceTable[self.myID][via]
+                cost = directCost + self.distanceTable[via][destNode]
+                if cost < minCost:
+                    minCost = cost
+                    nextHop = via
+            
+            # Update our distance vector and routes
+            self.costs[destNode] = minCost
+            self.routes[destNode] = nextHop
+        
+        # Send updates to all neighbors since our costs changed
+        for i in self.neighbours:
             if i == self.myID:
                 continue
-
-        self.bellmanFord()
-
-
+                
+            # Prepare packet to send
+            if self.sim.POISONREVERSE:
+                # Apply poison reverse
+                mincost = deepcopy(self.costs)
+                for destNode in range(self.sim.NUM_NODES):
+                    if self.routes[destNode] == i:
+                        mincost[destNode] = self.sim.INFINITY
+                pkt = RouterPacket.RouterPacket(self.myID, i, mincost)
+            else:
+                pkt = RouterPacket.RouterPacket(self.myID, i, self.costs)
+            self.sendUpdate(pkt)
